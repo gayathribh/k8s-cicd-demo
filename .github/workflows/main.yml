@@ -1,0 +1,118 @@
+name: Kubernetes CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout source code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt
+
+      # 4. Basic Python validation
+      - name: Compile Python
+        run: |
+          python -m compileall app
+
+      # 5. Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t k8s-cicd-demo:${{ github.sha }} \
+            ./app
+
+      # 6. Create Kubernetes cluster
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ci-cluster
+
+      # 7. Load Docker image into Kind
+      - name: Load image into Kind
+        run: |
+          kind load docker-image \
+            k8s-cicd-demo:${{ github.sha }} \
+            --name ci-cluster
+
+      # 8. Replace image placeholder
+      - name: Update Kubernetes image
+        run: |
+          sed -i \
+            "s|IMAGE_PLACEHOLDER|k8s-cicd-demo:${{ github.sha }}|g" \
+            k8s/backend-deployment.yaml
+
+      # 9. Deploy namespace
+      - name: Deploy namespace
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+
+      # 10. Deploy PostgreSQL
+      - name: Deploy PostgreSQL
+        run: |
+          kubectl apply -f k8s/postgres-secret.yaml
+          kubectl apply -f k8s/postgres-pvc.yaml
+          kubectl apply -f k8s/postgres-deployment.yaml
+          kubectl apply -f k8s/postgres-service.yaml
+
+      # 11. Deploy backend configuration
+      - name: Deploy backend configuration
+        run: |
+          kubectl apply -f k8s/backend-configmap.yaml
+          kubectl apply -f k8s/backend-secret.yaml
+
+      # 12. Deploy backend
+      - name: Deploy backend
+        run: |
+          kubectl apply -f k8s/backend-deployment.yaml
+          kubectl apply -f k8s/backend-service.yaml
+
+      # 13. Wait for PostgreSQL
+      - name: Wait for PostgreSQL
+        run: |
+          kubectl rollout status deployment/postgres \
+            -n demo \
+            --timeout=120s
+
+      # 14. Wait for backend
+      - name: Wait for backend
+        run: |
+          kubectl rollout status deployment/backend \
+            -n demo \
+            --timeout=120s
+
+      # 15. Verify deployment
+      - name: Verify Kubernetes resources
+        run: |
+          echo "===== NODES ====="
+          kubectl get nodes
+
+          echo "===== PODS ====="
+          kubectl get pods -n demo -o wide
+
+          echo "===== SERVICES ====="
+          kubectl get services -n demo
+
+          echo "===== DEPLOYMENTS ====="
+          kubectl get deployments -n demo
+
+          echo "===== PVC ====="
+          kubectl get pvc -n demo
