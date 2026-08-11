@@ -18,7 +18,7 @@ def get_db_connection():
 @app.route("/")
 def home():
     return jsonify({
-        "message": "Kubernetes CI/CD Demo - version 2",
+        "message": "Kubernetes CI/CD Demo - version 3",
         "status": "running"
     })
 
